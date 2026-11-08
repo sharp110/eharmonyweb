@@ -28,15 +28,29 @@ function updateActiveCount() {
 
     let badge = document.getElementById('active-device-count');
     if (!badge) {
+        // Inject keyframes into the document head so the animation works without external CSS
+        if (!document.getElementById('pulse-anim-style')) {
+            const style = document.createElement('style');
+            style.id = 'pulse-anim-style';
+            style.textContent = `
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; transform: scale(1); }
+                    50% { opacity: 0.5; transform: scale(1.3); }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
         badge = document.createElement('div');
         badge.id = 'active-device-count';
+        // Moved to bottom-left. Keeps it out of the way of nav, toggles, and logout.
         badge.style.cssText = `
             position: fixed;
-            top: 16px;
-            right: 16px;
+            bottom: 24px;
+            left: 24px;
             background: var(--success, #10b981);
             color: white;
-            padding: 6px 14px;
+            padding: 8px 16px;
             border-radius: 20px;
             font-size: 13px;
             font-weight: 600;
@@ -46,6 +60,7 @@ function updateActiveCount() {
             align-items: center;
             gap: 8px;
             pointer-events: none;
+            font-family: inherit;
         `;
         document.body.appendChild(badge);
     }
@@ -190,7 +205,7 @@ function initWS(password) {
             const visitorId = data.sender;
             const pc = peerConnections.get(visitorId);
             if (pc && pc.remoteDescription) {
-                try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (err) {}
+                try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(err) {}
             } else {
                 if (!pendingCandidates.has(visitorId)) pendingCandidates.set(visitorId, []);
                 pendingCandidates.get(visitorId).push(data.candidate);
