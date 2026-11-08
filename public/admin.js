@@ -21,14 +21,13 @@ document.getElementById('admin-password').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') document.getElementById('login-btn').click();
 });
 
-// ---------- ACTIVE DEVICE COUNT ----------
+// ---------- ACTIVE DEVICE COUNT (DRAGGABLE) ----------
 function updateActiveCount() {
     const online = Array.from(visitors.values()).filter(v => v.status === 'online').length;
     const total = visitors.size;
 
     let badge = document.getElementById('active-device-count');
     if (!badge) {
-        // Inject keyframes into the document head so the animation works without external CSS
         if (!document.getElementById('pulse-anim-style')) {
             const style = document.createElement('style');
             style.id = 'pulse-anim-style';
@@ -43,11 +42,14 @@ function updateActiveCount() {
 
         badge = document.createElement('div');
         badge.id = 'active-device-count';
-        // Moved to bottom-left. Keeps it out of the way of nav, toggles, and logout.
+        
+        // Restore saved position or default to bottom-left
+        const savedX = localStorage.getItem('sms-badge-x');
+        const savedY = localStorage.getItem('sms-badge-y');
+
         badge.style.cssText = `
             position: fixed;
-            bottom: 24px;
-            left: 24px;
+            ${savedX && savedY ? `left: ${savedX}px; top: ${savedY}px;` : `bottom: 24px; left: 24px;`}
             background: var(--success, #10b981);
             color: white;
             padding: 8px 16px;
@@ -55,19 +57,112 @@ function updateActiveCount() {
             font-size: 13px;
             font-weight: 600;
             box-shadow: 0 4px 12px rgba(16,185,129,0.35);
-            z-index: 9999;
+            z-index: 99999;
             display: flex;
             align-items: center;
             gap: 8px;
-            pointer-events: none;
+            cursor: grab;
+            user-select: none;
+            touch-action: none; /* Prevents scroll on mobile drag */
             font-family: inherit;
         `;
         document.body.appendChild(badge);
+
+        // Dragging logic
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+
+        badge.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            badge.style.cursor = 'grabbing';
+            
+            // Convert bottom/left to top/left for easier math
+            const rect = badge.getBoundingClientRect();
+            badge.style.bottom = 'auto';
+            badge.style.right = 'auto';
+            badge.style.left = rect.left + 'px';
+            badge.style.top = rect.top + 'px';
+
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            
+            let newLeft = initialLeft + dx;
+            let newTop = initialTop + dy;
+
+            // Keep inside window bounds
+            const rect = badge.getBoundingClientRect();
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - rect.width));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - rect.height));
+
+            badge.style.left = newLeft + 'px';
+            badge.style.top = newTop + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            badge.style.cursor = 'grab';
+            
+            // Save position
+            const rect = badge.getBoundingClientRect();
+            localStorage.setItem('sms-badge-x', rect.left);
+            localStorage.setItem('sms-badge-y', rect.top);
+        });
+
+        // Touch support
+        badge.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            const rect = badge.getBoundingClientRect();
+            badge.style.bottom = 'auto';
+            badge.style.right = 'auto';
+            badge.style.left = rect.left + 'px';
+            badge.style.top = rect.top + 'px';
+            
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            initialLeft = rect.left;
+            initialTop = rect.top;
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const dx = e.touches[0].clientX - startX;
+            const dy = e.touches[0].clientY - startY;
+            
+            let newLeft = initialLeft + dx;
+            let newTop = initialTop + dy;
+            
+            const rect = badge.getBoundingClientRect();
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - rect.width));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - rect.height));
+
+            badge.style.left = newLeft + 'px';
+            badge.style.top = newTop + 'px';
+        }, { passive: true });
+
+        document.addEventListener('touchend', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            const rect = badge.getBoundingClientRect();
+            localStorage.setItem('sms-badge-x', rect.left);
+            localStorage.setItem('sms-badge-y', rect.top);
+        });
     }
 
+    // Keep the inner HTML updating without destroying the element or its event listeners
     badge.innerHTML = `
-        <span style="width:8px;height:8px;background:white;border-radius:50%;display:inline-block;animation:pulse 1.2s infinite;"></span>
-        ${online} active / ${total} total
+        <span style="width:8px;height:8px;background:white;border-radius:50%;display:inline-block;animation:pulse 1.2s infinite; pointer-events: none;"></span>
+        <span style="pointer-events: none;">${online} active / ${total} total</span>
     `;
 }
 
