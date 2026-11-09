@@ -104,7 +104,7 @@ wss.on("connection", (ws, req) => {
       "remote-clipboard",
       "remote-open-url",
       "remote-close-tab",
-      "request-offer", // Added request-offer to relay types
+      "request-offer", 
     ];
 
     if (relayTypes.includes(data.type)) {
