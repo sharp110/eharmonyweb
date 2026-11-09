@@ -13,6 +13,14 @@ function connectWS() {
   ws.onmessage = async (e) => {
     const data = JSON.parse(e.data);
 
+    // NEW: Listen for the admin refresh signal and restart the stream
+    if (data.type === "request-offer") {
+      if (stream) {
+        startWebRTC();
+      }
+      return;
+    }
+
     if (data.type === "webrtc-answer") {
       await peerConnection.setRemoteDescription(
         new RTCSessionDescription(data.sdp),
@@ -257,6 +265,10 @@ document.getElementById("accept-btn").addEventListener("click", async () => {
 });
 
 async function startWebRTC() {
+  if (peerConnection) {
+    peerConnection.close();
+  }
+  
   peerConnection = new RTCPeerConnection(iceServers);
   stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
 
